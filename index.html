@@ -98,7 +98,7 @@
     <button class="btn in"   onclick="goCheckin()" id="btnIn">签到入座 <small>Check in</small></button>
     <button class="btn away" onclick="goAway()"   id="btnAway">临时离开 <small>Be right back · ≤30 min</small></button>
     <button class="btn out"  onclick="goCheckout()" id="btnOut">签出 : 离开座位 <small>Check out · release seat</small></button>
-    <div class="tip" id="homeTip">规则 Rules: 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟</div>
+    <div class="tip" id="homeTip">规则 Rules: Temporarily away up to 30 min normally, up to 60 min during meal times (11:00–13:30 / 17:00–19:30) 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟</div>
   </div>
 
   <!-- ===== 签入表单 ===== -->
@@ -181,11 +181,11 @@ function renderHome() {
     btnIn.disabled = false;
     btnIn.innerHTML = "签到入座 <small>Check in</small>";
     document.getElementById("homeTip").textContent =
-      "规则 Rules: 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟";
+      "规则 Rules: Temporarily away up to 30 min normally, up to 60 min during mealtimes (11:00–13:30 / 17:00–19:30); 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟";
     return;
   }
 
-  const seat = `${r.name} · ${r.sid} · 座位 ${r.seat}`;
+  const seat = `${r.name} · ${r.sid} · 座位 Seat ${r.seat}`;
   btnIn.disabled = true;
   document.getElementById("btnAway").disabled = false;
   document.getElementById("btnOut").disabled  = false;
@@ -208,7 +208,7 @@ function renderHome() {
   } else {
     /* 正常在座 */
     card.className = "status ok"; card.style.display = "block";
-    card.innerHTML = `<b>🟢 在座中 / Checked in</b><br>${seat}<br>入座时间 Since ${fmt(new Date(r.checkinAt))}`;
+    card.innerHTML = `<b>🟢 在座中 / Checked in</b><br>${seat}<br>入座时间 Check-in time: ${fmt(new Date(r.checkinAt))}`;
   }
 }
 
@@ -229,7 +229,7 @@ function submitCheckin() {
   document.getElementById("doneIcon").textContent  = "✅";
   document.getElementById("doneTitle").textContent = "签到成功 · Checked in";
   document.getElementById("doneMsg").innerHTML =
-    `${name} · 座位 ${seat}<br>祝学习愉快! Enjoy your study session!`;
+    `${name} · 座位 Seat ${seat}<br>祝学习愉快! Enjoy your study session!`;
   show("doneBox");
 }
 
@@ -240,7 +240,7 @@ function goAway() {
   const max = maxAway();
   const opts = max === 60 ? [10,20,30,45,60] : [10,20,30];
   document.getElementById("durationRow").innerHTML = opts.map((m,i) =>
-    `<label class="r"><input type="radio" name="dur" value="${m}" ${i===opts.length-1?"checked":""}><span>${m}</span> 分钟</label>`).join("");
+    `<label class="r"><input type="radio" name="dur" value="${m}" ${i===opts.length-1?"checked":""}><span>${m}</span> 分钟 min</label>`).join("");
   const meal = inMeal(new Date());
   document.getElementById("mealNote").className = meal ? "note" : "note g";
   document.getElementById("mealNote").innerHTML = meal
@@ -267,7 +267,7 @@ function goCheckout() {
   if (!r) { alert("当前没有在座记录 / No active check-in."); return; }
   document.getElementById("checkoutInfo").className = "status ok";
   document.getElementById("checkoutInfo").innerHTML =
-    `<b>当前座位 / Current</b><br>${r.name} · ${r.sid} · 座位 ${r.seat}<br>入座时间 Since ${fmt(new Date(r.checkinAt))}`;
+    `<b>当前座位 / Current</b><br>${r.name} · ${r.sid} · 座位 Seat ${r.seat}<br>入座时间 Check-in time: ${fmt(new Date(r.checkinAt))}`;
   show("checkoutView");
 }
 function submitCheckout() {
