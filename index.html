@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自习座位签到 · Seat Check-in</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f4f6fb;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px 16px 48px;
+  }
+  .card {
+    background: #fff;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(30,60,120,.10);
+    overflow: hidden;
+  }
+  .head {
+    background: linear-gradient(135deg,#2563eb,#1e40af);
+    color: #fff; padding: 20px 24px;
+  }
+  .head h1 { font-size: 20px; letter-spacing: 1px; }
+  .head p { font-size: 13px; opacity: .85; margin-top: 4px; }
+  .status {
+    margin: 16px 24px 0; padding: 14px 16px;
+    border-radius: 12px; font-size: 14px; line-height: 1.7;
+  }
+  .status.ok     { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; }
+  .status.away   { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+  .status.expired{ background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+  .status b { font-weight: 700; }
+  .countdown { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
+  .actions { padding: 20px 24px 26px; }
+  .btn {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; margin-top: 14px; padding: 16px 18px;
+    font-size: 16px; font-weight: 600; text-align: left;
+    color: #fff; border: none; border-radius: 12px; cursor: pointer;
+    transition: transform .08s, opacity .15s;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn.in   { background: #2563eb; }
+  .btn.out  { background: #059669; }
+  .btn.away { background: #d97706; }
+  .btn small { font-weight: 500; opacity: .85; font-size: 12px; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; color: #1f2937; }
+  label small { display: block; font-weight: 400; color: #6b7280; font-size: 12px; }
+  input {
+    width: 100%; padding: 11px 12px; font-size: 15px;
+    border: 1.5px solid #d1d5db; border-radius: 10px; outline: none;
+  }
+  input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .radio-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .radio-row label.r {
+    flex: 1 0 calc(25% - 10px); min-width: 74px;
+    text-align: center; padding: 12px 4px;
+    border: 1.5px solid #d1d5db; border-radius: 10px;
+    font-size: 15px; font-weight: 600; color: #374151;
+    cursor: pointer; user-select: none;
+  }
+  .radio-row input { display: none; }
+  .radio-row input:checked + span { color: #d97706; }
+  .radio-row label.r:has(input:checked) { border-color: #d97706; background: #fffbeb; }
+  .note {
+    margin-top: 12px; font-size: 12.5px; color: #92400e;
+    background: #fffbeb; border: 1px dashed #fde68a;
+    padding: 10px 12px; border-radius: 10px; line-height: 1.6;
+  }
+  .note.g { color: #065f46; background: #ecfdf5; border-color: #a7f3d0; }
+  .tip { margin-top: 18px; text-align: center; font-size: 12px; color: #9ca3af; }
+  .done { display: none; text-align: center; padding: 46px 24px; }
+  .done .icon { font-size: 50px; }
+  .done h2 { margin: 12px 0 6px; font-size: 18px; }
+  .done p { color: #6b7280; font-size: 14px; line-height: 1.7; }
+  .link { display:inline-block; margin-top: 18px; font-size: 14px; color: #2563eb; background: none; border: none; cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>自习室座位签到</h1>
+    <p>Study Room Seat Check-in / Check-out</p>
+  </div>
+
+  <div class="status ok" id="statusCard" style="display:none"></div>
+
+  <!-- ===== 主界面：三个动作 ===== -->
+  <div class="actions" id="homeView">
+    <button class="btn in"   onclick="goCheckin()" id="btnIn">签到入座 <small>Check in</small></button>
+    <button class="btn away" onclick="goAway()"   id="btnAway">临时离开 <small>Be right back · ≤30 min</small></button>
+    <button class="btn out"  onclick="goCheckout()" id="btnOut">签出 : 离开座位 <small>Check out · release seat</small></button>
+    <div class="tip" id="homeTip">规则 Rules: 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟</div>
+  </div>
+
+  <!-- ===== 签入表单 ===== -->
+  <div class="actions" id="checkinView" style="display:none">
+    <label for="name">学生姓名 / Student Name<small>请输入真实姓名 · full name</small></label>
+    <input id="name" type="text" placeholder="姓名 / Name" autocomplete="name">
+    <label for="sid">学号 / Student ID<small>例如 2023XXXXXX</small></label>
+    <input id="sid" type="text" inputmode="numeric" placeholder="学号 / Student ID">
+    <label for="seat">座位号 / Seat Number<small>见桌面号码牌 · see the number plate on the desk</small></label>
+    <input id="seat" type="text" placeholder="例如 A12 / e.g. A12">
+    <button class="btn in" id="btnCheckin" onclick="submitCheckin()">确认签到 · Check in</button>
+    <button class="link" onclick="goHome()">← 返回 Back</button>
+  </div>
+
+  <!-- ===== 临时离开: 时长选择 ===== -->
+  <div class="actions" id="awayView" style="display:none">
+    <p style="font-size:15px;font-weight:600;color:#d97706;margin-bottom:4px">选择离开时长 · Select duration</p>
+    <p style="font-size:12.5px;color:#6b7280">超时未返回, 座位将自动释放重新开放 · If you don't return in time, the seat will be auto-released.</p>
+    <div class="radio-row" id="durationRow"></div>
+    <div class="note" id="mealNote"></div>
+    <button class="btn away" onclick="submitAway()">确认离开 · Confirm</button>
+    <button class="link" onclick="goHome()">← 返回 Back</button>
+  </div>
+
+  <!-- ===== 签出确认 ===== -->
+  <div class="actions" id="checkoutView" style="display:none">
+    <div class="status ok" id="checkoutInfo"></div>
+    <p style="font-size:13.5px;color:#6b7280;margin-top:14px;line-height:1.7">
+      确认签出后, 该座位将立即重新开放给其他同学。<br>
+      After check-out, this seat will be released for others immediately.
+    </p>
+    <button class="btn out" onclick="submitCheckout()">确认签出 · Check out</button>
+    <button class="link" onclick="goHome()">← 返回 Back</button>
+  </div>
+
+  <!-- ===== 成功页 ===== -->
+  <div class="done" id="doneBox">
+    <div class="icon" id="doneIcon">✅</div>
+    <h2 id="doneTitle"></h2>
+    <p id="doneMsg"></p>
+    <button class="link" onclick="goHome()">返回主页 / Home</button>
+  </div>
+</div>
+
+<script>
+/* ============ 可调参数(报告里对应"规则设计") ============ */
+const MAX_AWAY       = 30;   // 普通时段临时离开上限(分钟) normal max
+const MAX_AWAY_MEAL  = 60;   // 用餐时段上限(分钟) meal-time max
+const MEAL_WINDOWS = [       // 用餐时段(24h制) meal windows
+  { name:"午餐 Lunch",     s:1100, e:1330 },
+  { name:"晚餐 Dinner",    s:1700, e:1930 }
+];
+const KEY = "seatCheckinRecord";
+
+/* ============ 状态读取 ============ */
+function rec()        { return JSON.parse(localStorage.getItem(KEY) || "null"); }
+function saveRec(r)   { localStorage.setItem(KEY, JSON.stringify(r)); }
+function clearRec()   { localStorage.removeItem(KEY); }
+function inMeal(now)  { const t = now.getHours()*100 + now.getMinutes();
+                        if (t >= 1100 && t <= 1330) return "午餐 Lunch";
+                        if (t >= 1700 && t <= 1930) return "晚餐 Dinner";
+                        return null; }
+function maxAway()    { return inMeal(new Date()) ? MAX_AWAY_MEAL : MAX_AWAY; }
+function fmt(d)       { return d.getHours().toString().padStart(2,"0") + ":" + d.getMinutes().toString().padStart(2,"0"); }
+
+/* ============ 视图切换 ============ */
+const views = ["homeView","checkinView","awayView","checkoutView","doneBox"];
+function show(id) { views.forEach(v => document.getElementById(v).style.display = (v===id?"block":"none")); }
+function goHome() { renderHome(); show("homeView"); }
+
+/* ============ 主界面渲染 ============ */
+function renderHome() {
+  const r = rec(), card = document.getElementById("statusCard");
+  const btnIn = document.getElementById("btnIn");
+  card.style.display = "none";
+
+  if (!r) {
+    document.getElementById("btnAway").disabled = true;
+    document.getElementById("btnOut").disabled  = true;
+    btnIn.disabled = false;
+    btnIn.innerHTML = "签到入座 <small>Check in</small>";
+    document.getElementById("homeTip").textContent =
+      "规则 Rules: 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟";
+    return;
+  }
+
+  const seat = `${r.name} · ${r.sid} · 座位 ${r.seat}`;
+  btnIn.disabled = true;
+  document.getElementById("btnAway").disabled = false;
+  document.getElementById("btnOut").disabled  = false;
+
+  if (r.tempUntil && Date.now() > r.tempUntil) {
+    /* 超时状态 */
+    card.className = "status expired"; card.style.display = "block";
+    const over = Math.floor((Date.now() - r.tempUntil) / 60000);
+    card.innerHTML = `<b>⏰ 临时离开已超时 ${over} 分钟 / Away time exceeded</b><br>${seat}<br>
+      座位视为已释放, 请重新签入或签出。<br><i>The seat has been auto-released. Please check in again or check out.</i>`;
+    btnIn.disabled = false;
+    btnIn.innerHTML = "重新签入 <small>Check in again</small>";
+  } else if (r.tempUntil) {
+    /* 临时离开中 */
+    card.className = "status away"; card.style.display = "block";
+    const left = Math.ceil((r.tempUntil - Date.now()) / 60000);
+    card.innerHTML = `<b>🚶 临时离开中 / Be right back</b><br>${seat}<br>
+      需在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回, 剩余 <span class="countdown">${left}</span> 分钟<br>
+      <i>Return by ${fmt(new Date(r.tempUntil))}, ${left} min left.</i>`;
+  } else {
+    /* 正常在座 */
+    card.className = "status ok"; card.style.display = "block";
+    card.innerHTML = `<b>🟢 在座中 / Checked in</b><br>${seat}<br>入座时间 Since ${fmt(new Date(r.checkinAt))}`;
+  }
+}
+
+/* ============ 签入 ============ */
+function goCheckin() {
+  const r = rec();
+  if (r) { document.getElementById("name").value = r.name;
+           document.getElementById("sid").value  = r.sid;
+           document.getElementById("seat").value = r.seat; }
+  show("checkinView");
+}
+function submitCheckin() {
+  const name = document.getElementById("name").value.trim();
+  const sid  = document.getElementById("sid").value.trim();
+  const seat = document.getElementById("seat").value.trim();
+  if (!name || !sid || !seat) { alert("请完整填写三项信息 / Please fill in all three fields"); return; }
+  saveRec({ name, sid, seat, checkinAt: Date.now(), tempUntil: null });
+  document.getElementById("doneIcon").textContent  = "✅";
+  document.getElementById("doneTitle").textContent = "签到成功 · Checked in";
+  document.getElementById("doneMsg").innerHTML =
+    `${name} · 座位 ${seat}<br>祝学习愉快! Enjoy your study session!`;
+  show("doneBox");
+}
+
+/* ============ 临时离开 ============ */
+function goAway() {
+  const r = rec();
+  if (!r) { alert("当前没有在座记录, 请先签入 / No active check-in. Please check in first."); return; }
+  const max = maxAway();
+  const opts = max === 60 ? [10,20,30,45,60] : [10,20,30];
+  document.getElementById("durationRow").innerHTML = opts.map((m,i) =>
+    `<label class="r"><input type="radio" name="dur" value="${m}" ${i===opts.length-1?"checked":""}><span>${m}</span> 分钟</label>`).join("");
+  const meal = inMeal(new Date());
+  document.getElementById("mealNote").className = meal ? "note" : "note g";
+  document.getElementById("mealNote").innerHTML = meal
+    ? `当前为<b>${meal}时段</b>(11:00–13:30 / 17:00–19:30), 上限放宽至 <b>${MAX_AWAY_MEAL} 分钟</b>。<br>Meal time: limit extended to ${MAX_AWAY_MEAL} min.`
+    : `当前非用餐时段, 上限 <b>${MAX_AWAY} 分钟</b>。用餐时段(11:00–13:30 / 17:00–19:30)最多 60 分钟。<br>Outside meal time: max ${MAX_AWAY} min.`;
+  show("awayView");
+}
+function submitAway() {
+  const dur = Number((document.querySelector('input[name="dur"]:checked') || {value:30}).value);
+  const r = rec();
+  if (!r) return;
+  r.tempUntil = Date.now() + dur * 60000;
+  saveRec(r);
+  document.getElementById("doneIcon").textContent  = "🚶";
+  document.getElementById("doneTitle").textContent = `已标记临时离开 ${dur} 分钟 · Away ${dur} min`;
+  document.getElementById("doneMsg").innerHTML =
+    `请在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回座位,<br>超时后座位将自动释放。<br><i>Return by ${fmt(new Date(r.tempUntil))} or the seat will be released.</i>`;
+  show("doneBox");
+}
+
+/* ============ 签出 ============ */
+function goCheckout() {
+  const r = rec();
+  if (!r) { alert("当前没有在座记录 / No active check-in."); return; }
+  document.getElementById("checkoutInfo").className = "status ok";
+  document.getElementById("checkoutInfo").innerHTML =
+    `<b>当前座位 / Current</b><br>${r.name} · ${r.sid} · 座位 ${r.seat}<br>入座时间 Since ${fmt(new Date(r.checkinAt))}`;
+  show("checkoutView");
+}
+function submitCheckout() {
+  const r = rec();
+  clearRec();
+  document.getElementById("doneIcon").textContent  = "👋";
+  document.getElementById("doneTitle").textContent = "已签出 · Checked out";
+  document.getElementById("doneMsg").innerHTML =
+    `座位 ${r.seat} 已重新开放。<br>感谢使用, 期待下次见!<br><i>Seat ${r.seat} released. See you next time!</i>`;
+  show("doneBox");
+}
+
+/* 倒计时每 30 秒刷新一次状态卡片 */
+setInterval(() => { if (document.getElementById("homeView").style.display !== "none") renderHome(); }, 30000);
+</script>
+</body>
+</html>
