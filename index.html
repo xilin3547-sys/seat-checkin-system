@@ -36,6 +36,7 @@
   .status.ok     { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; }
   .status.away   { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
   .status.expired{ background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+  .status.warn  { background:#fff7ed; border:1px solid #fb923c; color:#9a3412; }
   .status b { font-weight: 700; }
   .countdown { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
   .actions { padding: 20px 24px 26px; }
@@ -109,6 +110,8 @@
     <input id="sid" type="text" inputmode="numeric" placeholder="学号 / Student ID">
     <label for="seat">座位号 / Seat Number<small>见桌面号码牌 · see the number plate on the desk</small></label>
     <input id="seat" type="text" placeholder="例如 A12 / e.g. A12">
+    <label for="email">提醒邮箱 / Alert Email（选填 optional）<small>座位释放前 10 分钟接收预警 · get a reminder 10 min before release</small></label>
+    <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@university.edu">
     <button class="btn in" id="btnCheckin" onclick="submitCheckin()">确认签到 · Check in</button>
     <button class="link" onclick="goHome()">← 返回 Back</button>
   </div>
@@ -119,6 +122,7 @@
     <p style="font-size:12.5px;color:#6b7280">超时未返回, 座位将自动释放重新开放 · If you don't return in time, the seat will be auto-released.</p>
     <div class="radio-row" id="durationRow"></div>
     <div class="note" id="mealNote"></div>
+    <div class="note g">📌 座位释放前 <b>10 分钟</b>, 系统将向签到时填写的邮箱发送预警。<br>A reminder email is sent to your address 10 min before the seat is released.</div>
     <button class="btn away" onclick="submitAway()">确认离开 · Confirm</button>
     <button class="link" onclick="goHome()">← 返回 Back</button>
   </div>
@@ -145,8 +149,12 @@
 
 <script>
 /* ============ 可调参数(报告里对应"规则设计") ============ */
+const CONFIG = {
+  ENDPOINT: ""   // ★ Apps Script Web App 网址。为空=纯本地演示; 填入后自动上报+发送预警邮件
+};
 const MAX_AWAY       = 30;   // 普通时段临时离开上限(分钟) normal max
 const MAX_AWAY_MEAL  = 60;   // 用餐时段上限(分钟) meal-time max
+const WARN_BEFORE    = 10;   // 释放前提前预警(分钟) pre-release warning
 const MEAL_WINDOWS = [       // 用餐时段(24h制) meal windows
   { name:"午餐 Lunch",     s:1100, e:1330 },
   { name:"晚餐 Dinner",    s:1700, e:1930 }
@@ -200,11 +208,19 @@ function renderHome() {
     btnIn.innerHTML = "重新签入 <small>Check in again</small>";
   } else if (r.tempUntil) {
     /* 临时离开中 */
-    card.className = "status away"; card.style.display = "block";
     const left = Math.ceil((r.tempUntil - Date.now()) / 60000);
-    card.innerHTML = `<b>🚶 临时离开中 / Be right back</b><br>${seat}<br>
-      需在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回, 剩余 <span class="countdown">${left}</span> 分钟<br>
-      <i>Return by ${fmt(new Date(r.tempUntil))}, ${left} min left.</i>`;
+    if (left <= WARN_BEFORE) {
+      /* 释放前预警窗口: 橙色警示 */
+      card.className = "status warn"; card.style.display = "block";
+      card.innerHTML = `<b>⚠️ 预警 · 座位即将释放, 剩余 ${left} 分钟 / Releasing soon, ~${left} min left</b><br>${seat}<br>
+        截止时间 ${fmt(new Date(r.tempUntil))}。请尽快返回, 或让同学帮你取走随身物品。<br>
+        <i>Daily reminder was emailed (if set). Return before ${fmt(new Date(r.tempUntil))}.</i>`;
+    } else {
+      card.className = "status away"; card.style.display = "block";
+      card.innerHTML = `<b>🚶 临时离开中 / Be right back</b><br>${seat}<br>
+        需在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回, 剩余 <span class="countdown">${left}</span> 分钟<br>
+        <i>Return by ${fmt(new Date(r.tempUntil))}, ${left} min left.</i>`;
+    }
   } else {
     /* 正常在座 */
     card.className = "status ok"; card.style.display = "block";
@@ -215,21 +231,29 @@ function renderHome() {
 /* ============ 签入 ============ */
 function goCheckin() {
   const r = rec();
-  if (r) { document.getElementById("name").value = r.name;
-           document.getElementById("sid").value  = r.sid;
-           document.getElementById("seat").value = r.seat; }
+  if (r) { document.getElementById("name").value  = r.name;
+           document.getElementById("sid").value   = r.sid;
+           document.getElementById("seat").value  = r.seat;
+           document.getElementById("email").value = r.email || ""; }
   show("checkinView");
 }
 function submitCheckin() {
-  const name = document.getElementById("name").value.trim();
-  const sid  = document.getElementById("sid").value.trim();
-  const seat = document.getElementById("seat").value.trim();
-  if (!name || !sid || !seat) { alert("请完整填写三项信息 / Please fill in all three fields"); return; }
-  saveRec({ name, sid, seat, checkinAt: Date.now(), tempUntil: null });
+  const name  = document.getElementById("name").value.trim();
+  const sid   = document.getElementById("sid").value.trim();
+  const seat  = document.getElementById("seat").value.trim();
+  const email = document.getElementById("email").value.trim();
+  if (!name || !sid || !seat) { alert("请完整填写姓名/学号/座位号 / Please fill in name, student ID and seat"); return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("邮箱格式不正确 / Invalid email format"); return; }
+  saveRec({ name, sid, seat, email, checkinAt: Date.now(), tempUntil: null });
+  report("checkin", { name, sid, seat, email: email || "" });
   document.getElementById("doneIcon").textContent  = "✅";
   document.getElementById("doneTitle").textContent = "签到成功 · Checked in";
   document.getElementById("doneMsg").innerHTML =
-    `${name} · 座位 Seat ${seat}<br>祝学习愉快! Enjoy your study session!`;
+    `${name} · 座位 Seat ${seat}<br>` +
+    (email
+      ? `若临时离开超时未返回, 预警邮件将提前 10 分钟发送至 ${email}。<br><i>Reminder email will be sent to ${email} 10 min before release.</i>`
+      : "提示 Tip: 未填写邮箱则不会收到释放前预警。<br><i>No alert email set. Fill it in next time to get the reminder.</i>") +
+    `<br>祝学习愉快! Enjoy your study session!`;
   show("doneBox");
 }
 
@@ -254,10 +278,15 @@ function submitAway() {
   if (!r) return;
   r.tempUntil = Date.now() + dur * 60000;
   saveRec(r);
+  report("away", { name: r.name, sid: r.sid, seat: r.seat, email: r.email || "", tempUntil: r.tempUntil });
+  const warnLine = (r.email && CONFIG.ENDPOINT)
+    ? `预警邮件将于 <b>${fmt(new Date(r.tempUntil - WARN_BEFORE*60000))}</b> 发送至 ${r.email}。`
+    : "提示 Tip: 若想收到邮件预警, 请在签到时填写邮箱(需后台已部署)。";
   document.getElementById("doneIcon").textContent  = "🚶";
   document.getElementById("doneTitle").textContent = `已标记临时离开 ${dur} 分钟 · Away ${dur} min`;
   document.getElementById("doneMsg").innerHTML =
-    `请在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回座位,<br>超时后座位将自动释放。<br><i>Return by ${fmt(new Date(r.tempUntil))} or the seat will be released.</i>`;
+    `请在 <b>${fmt(new Date(r.tempUntil))}</b> 前返回座位, 超时后座位将自动释放。<br>
+     <i>Return by ${fmt(new Date(r.tempUntil))} or the seat will be released.</i><br>${warnLine}`;
   show("doneBox");
 }
 
@@ -273,11 +302,25 @@ function goCheckout() {
 function submitCheckout() {
   const r = rec();
   clearRec();
+  report("checkout", { name: r.name, sid: r.sid, seat: r.seat });
   document.getElementById("doneIcon").textContent  = "👋";
   document.getElementById("doneTitle").textContent = "已签出 · Checked out";
   document.getElementById("doneMsg").innerHTML =
     `座位 ${r.seat} 已重新开放。<br>感谢使用, 期待下次见!<br><i>Seat ${r.seat} released. See you next time!</i>`;
   show("doneBox");
+}
+
+/* ============ 云端上报(需 ENDPOINT 已配置) ============ */
+function report(action, data) {
+  if (!CONFIG.ENDPOINT) return;               // 未配置后台 = 纯本地演示, 不影响使用
+  try {
+    fetch(CONFIG.ENDPOINT, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...data, ts: Date.now() })
+    });
+  } catch (e) { /* 静默失败, 不打断用户流程 */ }
 }
 
 /* 倒计时每 30 秒刷新一次状态卡片 */
