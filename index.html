@@ -105,8 +105,6 @@
     <button class="btn out"  onclick="goCheckout()" id="btnOut">签出 : 离开座位 <small>Check out · release seat</small></button>
     <button class="btn back" onclick="resumeSeat()" id="btnBack" style="display:none">我已返回, 恢复在座 <small>Resume · I'm back</small></button>
     <div class="tip" id="homeTip">规则 Rules: Temporarily away up to 30 min normally, up to 60 min during meal times (11:00–13:30 / 17:00–19:30); popup 10 min before release, auto check-out when time ends 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟, 释放前 10 分钟弹窗提醒, 到时自动签出</div>
-    <button class="link" id="btnNotify" onclick="enableNotify()">🔔 开启弹窗提醒 · Enable notifications</button>
-    <div class="tip" id="notifyTip" style="display:none">✅ 弹窗提醒已开启: 暂离释放前 10 分钟会在此弹窗 · Notifications on: you'll get a popup 10 min before release</div>
   </div>
 
   <!-- ===== 签入表单 ===== -->
@@ -115,7 +113,7 @@
     <input id="name" type="text" placeholder="姓名 / Name" autocomplete="name">
     <label for="sid">学号 / Student ID<small>例如 2023XXXXXX</small></label>
     <input id="sid" type="text" inputmode="numeric" placeholder="学号 / Student ID">
-    <label for="seat">座位号 / Seat Number<small>见桌面号码牌 · see the number plate on the desk</small></label>
+    <label for="seat">座位号 / Seat Number<small id="seatHint">扫描桌面二维码自动识别 · auto-detected from the desk QR</small></label>
     <input id="seat" type="text" placeholder="例如 A12 / e.g. A12">
     <label for="email">提醒邮箱 / Alert Email（选填 optional）<small>座位释放前 10 分钟接收预警 · get a reminder 10 min before release</small></label>
     <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@university.edu">
@@ -150,6 +148,8 @@
     <div class="icon" id="doneIcon">✅</div>
     <h2 id="doneTitle"></h2>
     <p id="doneMsg"></p>
+    <button class="link" id="btnEnableNotify" onclick="enableNotify()">🔔 一键开启提醒弹窗 · Enable reminders</button>
+    <div class="tip" id="notifyHint" style="display:none">开一次就够了: 之后暂离到期前 10 分钟自动弹窗。<br>Once enabled, a popup appears 10 min before release automatically.</div>
     <button class="link" onclick="goHome()">返回主页 / Home</button>
   </div>
 </div>
@@ -159,6 +159,7 @@
 const CONFIG = {
   ENDPOINT: ""   // ★ Apps Script Web App 网址。为空=纯本地演示; 填入后自动上报+发送预警邮件
 };
+  const URL_SEAT = new URLSearchParams(location.search).get("seat");   // 桌面二维码携带的座位号
 const MAX_AWAY       = 30;   // 普通时段临时离开上限(分钟) normal max
 const MAX_AWAY_MEAL  = 60;   // 用餐时段上限(分钟) meal-time max
 const WARN_BEFORE    = 10;   // 释放前提前预警(分钟) pre-release warning
@@ -204,7 +205,6 @@ function renderHome() {
     btnIn.innerHTML = "签到入座 <small>Check in</small>";
     document.getElementById("homeTip").textContent =
       "规则 Rules: Temporarily away up to 30 min normally, up to 60 min during mealtimes (11:00–13:30 / 17:00–19:30); popup 10 min before release, auto check-out when time ends.; 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟, 释放前 10 分钟弹窗提醒, 到时自动签出";
-    renderNotifyUI();
     return;
   }
 
@@ -245,7 +245,6 @@ function renderHome() {
     document.getElementById("btnAway").disabled = false;
     document.getElementById("btnOut").disabled  = false;
   }
-  renderNotifyUI();
 }
 
 /* 暂离到期: 自动签出 + 释放座位 */
@@ -278,28 +277,41 @@ function goCheckin() {
   const r = rec();
   if (r) { document.getElementById("name").value  = r.name;
            document.getElementById("sid").value   = r.sid;
-           document.getElementById("seat").value  = r.seat;
            document.getElementById("email").value = r.email || ""; }
+  /* 座位号: 二维码识别优先, 只读; 无识别信息时才允许手输 */
+  const seatInput = document.getElementById("seat");
+  const seatHint  = document.getElementById("seatHint");
+  if (URL_SEAT) {
+    seatInput.value = URL_SEAT;
+    seatInput.readOnly = true;
+    seatInput.style.background = "#eef2ff";
+    seatInput.style.color = "#1e40af";
+    seatHint.textContent = "✓ 已自动识别座位 · automatically detected from this QR";
+  } else {
+    seatInput.value = r ? r.seat : "";
+    seatInput.readOnly = false;
+    seatInput.style.background = "";
+    seatInput.style.color = "";
+    seatHint.textContent = "⚠ 未检测到座位信息, 请手输或改扫桌面二维码 · No seat detected — type it or scan the desk QR";
+  }
   show("checkinView");
 }
 function submitCheckin() {
   const name  = document.getElementById("name").value.trim();
   const sid   = document.getElementById("sid").value.trim();
-  const seat  = document.getElementById("seat").value.trim();
+  const seat  = ((URL_SEAT || document.getElementById("seat").value) + "").trim();
   const email = document.getElementById("email").value.trim();
-  if (!name || !sid || !seat) { alert("请完整填写姓名/学号/座位号 / Please fill in name, student ID and seat"); return; }
+  if (!name || !sid) { alert("请填写姓名与学号 / Please fill in name and student ID"); return; }
+  if (!seat)         { alert("未检测到座位号, 请扫座位上的二维码 / No seat detected — scan the QR code on the desk"); return; }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("邮箱格式不正确 / Invalid email format"); return; }
-  saveRec({ name, sid, seat, email, checkinAt: Date.now(), tempUntil: null });
+  saveRec({ name, sid, seat, email, checkinAt: Date.now(), tempUntil: null, autoOut: null });
   report("checkin", { name, sid, seat, email: email || "" });
   document.getElementById("doneIcon").textContent  = "✅";
   document.getElementById("doneTitle").textContent = "签到成功 · Checked in";
   document.getElementById("doneMsg").innerHTML =
-    `${name} · 座位 Seat ${seat}<br>` +
-    (email
-      ? `若临时离开超时未返回, 预警邮件将提前 10 分钟发送至 ${email}。<br><i>Reminder email will be sent to ${email} 10 min before release.</i>`
-      : "提示 Tip: 未填写邮箱则不会收到释放前预警。<br><i>No alert email set. Fill it in next time to get the reminder.</i>") +
-    `<br>祝学习愉快! Enjoy your study session!`;
+    `${name} · 座位 Seat ${seat}<br>祝学习愉快! Enjoy your study session!`;
   show("doneBox");
+  renderNotifyUI();
 }
 
 /* ============ 临时离开 ============ */
@@ -348,7 +360,6 @@ function submitCheckout() {
   const r = rec();
   clearRec();
   report("checkout", { name: r.name, sid: r.sid, seat: r.seat });
-  notify("👋 已签出 · Checked out", `座位 ${r.seat} 已重新开放给其他同学。Seat ${r.seat} is now available.`);
   document.getElementById("doneIcon").textContent  = "👋";
   document.getElementById("doneTitle").textContent = "已签出 · Checked out";
   document.getElementById("doneMsg").innerHTML =
@@ -356,7 +367,7 @@ function submitCheckout() {
   show("doneBox");
 }
 
-/* ============ 弹窗提醒 (Web Notification / PWA) ============ */
+/* ============ 弹窗提醒 (一键开启, 仅在签到成功页出现) ============ */
 function notify(title, body) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   try {
@@ -370,20 +381,25 @@ function notify(title, body) {
     }
   } catch (e) { try { new Notification(title, { body }); } catch (e2) {} }
 }
+/* 只在签到成功页显示按钮; 支持检查与授权状态都在这里收敛 */
 function renderNotifyUI() {
-  const btn = document.getElementById("btnNotify");
-  const tip = document.getElementById("notifyTip");
-  if (!("Notification" in window)) { btn.style.display = "none"; return; }
-  const granted = Notification.permission === "granted";
-  btn.style.display = granted ? "none" : "block";
-  tip.style.display = granted ? "block" : "none";
+  const done   = document.getElementById("doneBox");
+  const btn    = document.getElementById("btnEnableNotify");
+  const hint   = document.getElementById("notifyHint");
+  if (!done || done.style.display !== "block") return;
+  if (!("Notification" in window)) {                 // iPhone 未加主屏等情况: 留一行提示, 不弹错误框
+    btn.style.display = "none";
+    hint.style.display = "block";
+    hint.textContent = "此浏览器暂不支持弹窗; iPhone 需在 Safari 中\"添加到主屏幕\"后从主屏打开。";
+    return;
+  }
+  hint.style.display = "block";
+  hint.textContent = "开一次就够了: 之后暂离到期前 10 分钟自动弹窗。One tap only — popups then stay automatic.";
+  btn.style.display = Notification.permission === "granted" ? "none" : "block";
 }
 function enableNotify() {
-  if (!("Notification" in window)) { alert("当前浏览器不支持通知 / Notifications are not supported in this browser"); return; }
-  Notification.requestPermission().then(p => {
-    renderNotifyUI();
-    if (p === "granted") notify("🔔 弹窗提醒已开启 · Notifications on", "临时离开到期前 10 分钟将弹窗提醒。You'll get a popup 10 min before your seat is released.");
-  });
+  if (!("Notification" in window)) return;
+  Notification.requestPermission().then(() => renderNotifyUI());
 }
 
 /* ============ 云端上报(需 ENDPOINT 已配置) ============ */

@@ -1,8 +1,8 @@
 /* Service Worker: 座位签到 PWA
    - 预缓存核心文件, 断网时可打开页面
    - 为后续锁屏 Web Push (FCM) 预留: 二期在 push 事件里展示通知 */
-const CACHE = "seat-checkin-v1";
-const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+const CACHE = "seat-checkin-v2";
+const ASSETS = ["./", "./index.html", "./seat-plate.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
