@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>自习座位签到 · Seat Check-in</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -51,6 +54,7 @@
   .btn.in   { background: #2563eb; }
   .btn.out  { background: #059669; }
   .btn.away { background: #d97706; }
+  .btn.back { background: #0891b2; }
   .btn small { font-weight: 500; opacity: .85; font-size: 12px; }
   .btn[disabled] { opacity: .45; cursor: not-allowed; }
   label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; color: #1f2937; }
@@ -99,7 +103,10 @@
     <button class="btn in"   onclick="goCheckin()" id="btnIn">签到入座 <small>Check in</small></button>
     <button class="btn away" onclick="goAway()"   id="btnAway">临时离开 <small>Be right back · ≤30 min</small></button>
     <button class="btn out"  onclick="goCheckout()" id="btnOut">签出 : 离开座位 <small>Check out · release seat</small></button>
-    <div class="tip" id="homeTip">规则 Rules: Temporarily away up to 30 min normally, up to 60 min during meal times (11:00–13:30 / 17:00–19:30) 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟</div>
+    <button class="btn back" onclick="resumeSeat()" id="btnBack" style="display:none">我已返回, 恢复在座 <small>Resume · I'm back</small></button>
+    <div class="tip" id="homeTip">规则 Rules: Temporarily away up to 30 min normally, up to 60 min during meal times (11:00–13:30 / 17:00–19:30); popup 10 min before release, auto check-out when time ends 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟, 释放前 10 分钟弹窗提醒, 到时自动签出</div>
+    <button class="link" id="btnNotify" onclick="enableNotify()">🔔 开启弹窗提醒 · Enable notifications</button>
+    <div class="tip" id="notifyTip" style="display:none">✅ 弹窗提醒已开启: 暂离释放前 10 分钟会在此弹窗 · Notifications on: you'll get a popup 10 min before release</div>
   </div>
 
   <!-- ===== 签入表单 ===== -->
@@ -122,7 +129,7 @@
     <p style="font-size:12.5px;color:#6b7280">超时未返回, 座位将自动释放重新开放 · If you don't return in time, the seat will be auto-released.</p>
     <div class="radio-row" id="durationRow"></div>
     <div class="note" id="mealNote"></div>
-    <div class="note g">📌 座位释放前 <b>10 分钟</b>, 系统将向签到时填写的邮箱发送预警。<br>A reminder email is sent to your address 10 min before the seat is released.</div>
+    <div class="note g">📌 座位释放前 <b>10 分钟</b>将弹窗提醒 (需在主页开启通知权限)。到期未返回将<b>自动签出</b>并释放座位。<br>A popup reminder appears 10 min before release; the seat is auto-released when time runs out.</div>
     <button class="btn away" onclick="submitAway()">确认离开 · Confirm</button>
     <button class="link" onclick="goHome()">← 返回 Back</button>
   </div>
@@ -180,8 +187,15 @@ function goHome() { renderHome(); show("homeView"); }
 /* ============ 主界面渲染 ============ */
 function renderHome() {
   const r = rec(), card = document.getElementById("statusCard");
-  const btnIn = document.getElementById("btnIn");
+  const btnIn   = document.getElementById("btnIn");
+  const btnAway = document.getElementById("btnAway");
+  const btnOut  = document.getElementById("btnOut");
+  const btnBack = document.getElementById("btnBack");
   card.style.display = "none";
+  btnBack.style.display = "none";
+
+  /* 暂离到期 → 自动签出(执行一次后重渲染) */
+  if (r && !r.autoOut && r.tempUntil && Date.now() >= r.tempUntil) { doAutoCheckout(r); return; }
 
   if (!r) {
     document.getElementById("btnAway").disabled = true;
@@ -189,32 +203,35 @@ function renderHome() {
     btnIn.disabled = false;
     btnIn.innerHTML = "签到入座 <small>Check in</small>";
     document.getElementById("homeTip").textContent =
-      "规则 Rules: Temporarily away up to 30 min normally, up to 60 min during mealtimes (11:00–13:30 / 17:00–19:30); 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟";
+      "规则 Rules: Temporarily away up to 30 min normally, up to 60 min during mealtimes (11:00–13:30 / 17:00–19:30); popup 10 min before release, auto check-out when time ends.; 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟, 释放前 10 分钟弹窗提醒, 到时自动签出";
+    renderNotifyUI();
     return;
   }
 
   const seat = `${r.name} · ${r.sid} · 座位 Seat ${r.seat}`;
   btnIn.disabled = true;
-  document.getElementById("btnAway").disabled = false;
-  document.getElementById("btnOut").disabled  = false;
 
-  if (r.tempUntil && Date.now() > r.tempUntil) {
-    /* 超时状态 */
+  if (r.autoOut) {
+    /* 已被自动签出(释放态, 等待重新签入) */
     card.className = "status expired"; card.style.display = "block";
-    const over = Math.floor((Date.now() - r.tempUntil) / 60000);
-    card.innerHTML = `<b>⏰ 临时离开已超时 ${over} 分钟 / Away time exceeded</b><br>${seat}<br>
-      座位视为已释放, 请重新签入或签出。<br><i>The seat has been auto-released. Please check in again or check out.</i>`;
+    card.innerHTML = `<b>👋 座位已自动签出 · Seat auto-released</b><br>${seat}<br>
+      ${fmt(new Date(r.autoOut))} 因临时离开超时, 座位已自动释放给其他同学。<br>
+      <i>The seat was released to others because the away time ended. To use it again, check in again.</i>`;
+    document.getElementById("btnAway").disabled = true;
+    document.getElementById("btnOut").disabled  = true;
     btnIn.disabled = false;
     btnIn.innerHTML = "重新签入 <small>Check in again</small>";
   } else if (r.tempUntil) {
-    /* 临时离开中 */
+    /* 临时离开中: 正常倒计时 / 释放前预警两级 */
+    document.getElementById("btnAway").disabled = true;
+    document.getElementById("btnOut").disabled  = false;
+    btnBack.style.display = "flex";
     const left = Math.ceil((r.tempUntil - Date.now()) / 60000);
     if (left <= WARN_BEFORE) {
-      /* 释放前预警窗口: 橙色警示 */
       card.className = "status warn"; card.style.display = "block";
       card.innerHTML = `<b>⚠️ 预警 · 座位即将释放, 剩余 ${left} 分钟 / Releasing soon, ~${left} min left</b><br>${seat}<br>
         截止时间 ${fmt(new Date(r.tempUntil))}。请尽快返回, 或让同学帮你取走随身物品。<br>
-        <i>Daily reminder was emailed (if set). Return before ${fmt(new Date(r.tempUntil))}.</i>`;
+        <i>Return before ${fmt(new Date(r.tempUntil))} or tap "I'm back" on return.</i>`;
     } else {
       card.className = "status away"; card.style.display = "block";
       card.innerHTML = `<b>🚶 临时离开中 / Be right back</b><br>${seat}<br>
@@ -225,7 +242,35 @@ function renderHome() {
     /* 正常在座 */
     card.className = "status ok"; card.style.display = "block";
     card.innerHTML = `<b>🟢 在座中 / Checked in</b><br>${seat}<br>入座时间 Check-in time: ${fmt(new Date(r.checkinAt))}`;
+    document.getElementById("btnAway").disabled = false;
+    document.getElementById("btnOut").disabled  = false;
   }
+  renderNotifyUI();
+}
+
+/* 暂离到期: 自动签出 + 释放座位 */
+function doAutoCheckout(r) {
+  r.tempUntil = null;
+  r.autoOut = Date.now();
+  saveRec(r);
+  report("autorelease", { name: r.name, sid: r.sid, seat: r.seat });
+  notify("👋 座位已自动释放 · Seat released",
+    `座位 ${r.seat} 临时离开超时, 已自动签出。座位 ${r.seat} was auto-released.`);
+  renderHome();
+}
+
+/* 我已返回: 一键恢复在座 */
+function resumeSeat() {
+  const r = rec();
+  if (!r) return;
+  r.tempUntil = null; r.autoOut = null;
+  saveRec(r);
+  report("resume", { name: r.name, sid: r.sid, seat: r.seat });
+  document.getElementById("doneIcon").textContent  = "✅";
+  document.getElementById("doneTitle").textContent = "已恢复在座 · Back on seat";
+  document.getElementById("doneMsg").innerHTML =
+    `座位 ${r.seat} 已恢复为"在座中", 祝学习愉快!<br><i>Seat ${r.seat} resumed. Enjoy your study!</i>`;
+  show("doneBox");
 }
 
 /* ============ 签入 ============ */
@@ -280,8 +325,8 @@ function submitAway() {
   saveRec(r);
   report("away", { name: r.name, sid: r.sid, seat: r.seat, email: r.email || "", tempUntil: r.tempUntil });
   const warnLine = (r.email && CONFIG.ENDPOINT)
-    ? `预警邮件将于 <b>${fmt(new Date(r.tempUntil - WARN_BEFORE*60000))}</b> 发送至 ${r.email}。`
-    : "提示 Tip: 若想收到邮件预警, 请在签到时填写邮箱(需后台已部署)。";
+    ? `预警邮件将发送至 ${r.email} (后台已部署)；页面上也会在释放前 10 分钟弹窗。`
+    : "页面上会在释放前 10 分钟弹窗提醒；若未收到, 请回主页开启通知权限。";
   document.getElementById("doneIcon").textContent  = "🚶";
   document.getElementById("doneTitle").textContent = `已标记临时离开 ${dur} 分钟 · Away ${dur} min`;
   document.getElementById("doneMsg").innerHTML =
@@ -303,11 +348,42 @@ function submitCheckout() {
   const r = rec();
   clearRec();
   report("checkout", { name: r.name, sid: r.sid, seat: r.seat });
+  notify("👋 已签出 · Checked out", `座位 ${r.seat} 已重新开放给其他同学。Seat ${r.seat} is now available.`);
   document.getElementById("doneIcon").textContent  = "👋";
   document.getElementById("doneTitle").textContent = "已签出 · Checked out";
   document.getElementById("doneMsg").innerHTML =
     `座位 ${r.seat} 已重新开放。<br>感谢使用, 期待下次见!<br><i>Seat ${r.seat} released. See you next time!</i>`;
   show("doneBox");
+}
+
+/* ============ 弹窗提醒 (Web Notification / PWA) ============ */
+function notify(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then(reg => {
+        if (reg && reg.showNotification) reg.showNotification(title, { body, icon: "icon-192.png", badge: "icon-192.png" });
+        else new Notification(title, { body });
+      });
+    } else {
+      new Notification(title, { body });
+    }
+  } catch (e) { try { new Notification(title, { body }); } catch (e2) {} }
+}
+function renderNotifyUI() {
+  const btn = document.getElementById("btnNotify");
+  const tip = document.getElementById("notifyTip");
+  if (!("Notification" in window)) { btn.style.display = "none"; return; }
+  const granted = Notification.permission === "granted";
+  btn.style.display = granted ? "none" : "block";
+  tip.style.display = granted ? "block" : "none";
+}
+function enableNotify() {
+  if (!("Notification" in window)) { alert("当前浏览器不支持通知 / Notifications are not supported in this browser"); return; }
+  Notification.requestPermission().then(p => {
+    renderNotifyUI();
+    if (p === "granted") notify("🔔 弹窗提醒已开启 · Notifications on", "临时离开到期前 10 分钟将弹窗提醒。You'll get a popup 10 min before your seat is released.");
+  });
 }
 
 /* ============ 云端上报(需 ENDPOINT 已配置) ============ */
@@ -323,8 +399,31 @@ function report(action, data) {
   } catch (e) { /* 静默失败, 不打断用户流程 */ }
 }
 
-/* 倒计时每 30 秒刷新一次状态卡片 */
+/* 轻量巡检: 到期自动签出 + T-10 弹窗(页面开着时本地触发; 锁屏推送为二期 FCM) */
+function tick() {
+  const r = rec();
+  if (!r) return;
+  if (r.tempUntil) {
+    const left = r.tempUntil - Date.now();
+    if (left <= 0) { renderHome(); return; }                 // 触发自动签出
+    const key = "warned_" + r.tempUntil;
+    if (left <= WARN_BEFORE * 60000 && !localStorage.getItem(key)) {
+      localStorage.setItem(key, "1");
+      const mins = Math.max(1, Math.round(left / 60000));
+      notify("⚠️ 座位即将释放 · Seat releasing soon",
+        `座位 ${r.seat} 剩余约 ${mins} 分钟, 请尽快返回。~${mins} min left for seat ${r.seat}.`);
+    }
+  }
+}
+setInterval(tick, 10000);
 setInterval(() => { if (document.getElementById("homeView").style.display !== "none") renderHome(); }, 30000);
+
+/* Service Worker 登记(PWA: 可安装到主屏 / 支持弹窗与离线打开) */
+window.addEventListener("load", () => {
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+});
 </script>
 </body>
 </html>
