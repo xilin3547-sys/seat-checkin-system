@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自习室空座位图 · Study Room Empty Seat Map</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f4f6fb;
+    min-height: 100vh;
+    padding: 24px 16px 48px;
+  }
+  .card {
+    background: #fff;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(30,60,120,.10);
+    overflow: hidden;
+  }
+  .head {
+    background: linear-gradient(135deg,#2563eb,#1e40af);
+    color: #fff; padding: 20px 24px;
+  }
+  .head h1 { font-size: 20px; letter-spacing: 1px; }
+  .head p { font-size: 13px; opacity: .85; margin-top: 4px; }
+  .stats { display: flex; gap: 10px; padding: 12px 24px; }
+  .stat { flex: 1; background: #f4f6fb; border-radius: 12px; padding: 12px 10px; text-align: center; }
+  .stat .v { font-size: 20px; font-weight: 700; }
+  .stat .l { font-size: 12px; color: #6b7280; }
+  .stat.empty .v { color: #16a34a; }
+  .stat.occ .v { color: #dc2626; }
+  .stat.away .v { color: #d97706; }
+  .controls { padding: 12px 24px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600;
+    color: #fff; border: none; border-radius: 10px; cursor: pointer;
+  }
+  .btn.blue { background: #2563eb; }
+  .btn.gray { background: #6b7280; }
+  .btn.outline { background: #fff; border: 1.5px solid #d1d5db; color: #1f2937; }
+  .btn small { opacity: .85; font-size: 11px; font-weight: 500; }
+  .btn:active { opacity: .85; }
+  .map { padding: 16px 24px 24px; }
+  .map-title { font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+  .seat {
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    border: 2px solid;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: transform .08s, box-shadow .2s, border-color .2s;
+    user-select: none;
+  }
+  .seat:active { transform: scale(.92); }
+  .seat.empty { background: #ecfdf5; border-color: #22c55e; color: #16a34a; }
+  .seat.empty .dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; margin-bottom: 4px; }
+  .seat.occ { background: #fef2f2; border-color: #ef4444; color: #dc2626; }
+  .seat.occ .dot { background: #ef4444; }
+  .seat.away { background: #fffbeb; border-color: #f59e0b; color: #d97706; }
+  .seat.away .dot { background: #f59e0b; }
+  .seat .label { font-size: 12px; }
+  .seat .sub { font-size: 9.5px; opacity: .75; }
+  .legend { display: flex; gap: 14px; padding: 10px 24px; background: #fff; font-size: 12.5px; color: #374151; }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .tip { padding: 12px 24px 20px; font-size: 12px; color: #6b7280; text-align: center; line-height: 1.6; }
+  @media (max-width: 560px) {
+    .grid { gap: 6px; }
+    .seat { font-size: 11px; }
+    .seat .sub { font-size: 8.5px; }
+    .stats { gap: 6px; padding: 10px 16px; }
+    .stat .v { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>自习室空座位图</h1>
+    <p>Study Room Empty Seat Map — 绿色=空位可用 · 红色=已被占用 · 橙色=临时离开中</p>
+  </div>
+
+  <div class="stats" id="stats">
+    <div class="stat empty"><div class="v" id="statEmpty">-</div><div class="l">空位 Empty</div></div>
+    <div class="stat occ"><div class="v" id="statOcc">-</div><div class="l">已占用 Occupied</div></div>
+    <div class="stat away"><div class="v" id="statAway">-</div><div class="l">临时离开 Away</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn blue" onclick="refresh()">🔄 刷新状态 Refresh</button>
+    <button class="btn gray" onclick="toggleEdit()">编辑模式 Edit</button>
+    <button class="btn outline" onclick="resetDemo()">重置演示 Reset</button>
+    <span id="editHint" style="font-size:12px;color:#6b7280;display:none;margin-left:auto">点击座位可切换状态 · Tap a seat to toggle status</span>
+  </div>
+
+  <div class="map">
+    <div class="map-title"><span>座位分布 Seat Layout</span><span id="lastUpd"></span></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="legend">
+    <div class="item"><div class="dot" style="background:#22c55e"></div>空位可用 · Empty</div>
+    <div class="item"><div class="dot" style="background:#ef4444"></div>已签到在座 · Occupied</div>
+    <div class="item"><div class="dot" style="background:#f59e0b"></div>临时离开中 · Away</div>
+  </div>
+
+  <div class="tip">
+    状态与签到页面共用本地记录（同一设备）。<br>
+    Status is shared with the check-in page on this device (localStorage). Empty seats are available for check-in.
+  </div>
+</div>
+
+<script>
+const KEY = "seatCheckinRecord";   // 与 index.html 签到页共享同一 localStorage 键
+const EDIT_KEY = "seatMapEdit";    // 编辑模式下的手动覆盖记录
+const ROWS = ["A","B","C","D","E","F"];
+const COLS = 10;
+let editMode = false;
+let manual = {};
+
+function allSeats() {
+  const out = [];
+  for (const r of ROWS) for (let c = 1; c <= COLS; c++) out.push(r + String(c).padStart(2,"0"));
+  return out;
+}
+const ALL = allSeats();
+
+function rec() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e) { return null; } }
+function getManual() { try { return JSON.parse(localStorage.getItem(EDIT_KEY) || "{}"); } catch(e) { return {}; } }
+function setManual(m) { localStorage.setItem(EDIT_KEY, JSON.stringify(m)); }
+
+/* 判定某座位状态：手动覆盖优先；否则读签到记录 */
+function statusOf(seat) {
+  if (manual[seat]) return manual[seat];
+  const r = rec();
+  if (r && r.seat === seat) {
+    if (r.autoOut) return "empty";
+    if (r.tempUntil && Date.now() < r.tempUntil) return "away";
+    return "occ";
+  }
+  return "empty";
+}
+
+function render() {
+  const grid = document.getElementById("grid");
+  let empty = 0, occ = 0, away = 0;
+  const labelMap = { empty: "空位", occ: "已占", away: "暂离" };
+  const html = ALL.map(s => {
+    const st = statusOf(s);
+    if (st === "empty") empty++;
+    else if (st === "occ") occ++;
+    else away++;
+    return `<div class="seat ${st}" onclick="toggleSeat('${s}')" title="${s}">
+      <div class="dot"></div>
+      <div class="label">${s}</div>
+      <div class="sub">${labelMap[st]}</div>
+    </div>`;
+  }).join("");
+  grid.innerHTML = html;
+  document.getElementById("statEmpty").textContent = empty;
+  document.getElementById("statOcc").textContent = occ;
+  document.getElementById("statAway").textContent = away;
+  document.getElementById("lastUpd").textContent = "更新 " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+}
+
+function toggleSeat(seat) {
+  if (!editMode) return;
+  const cur = statusOf(seat);
+  const next = cur === "empty" ? "occ" : cur === "occ" ? "away" : "empty";
+  if (next === "empty") { delete manual[seat]; setManual(manual); }
+  else { manual[seat] = next; setManual(manual); }
+  render();
+}
+
+function toggleEdit() {
+  editMode = !editMode;
+  document.getElementById("editHint").style.display = editMode ? "inline" : "none";
+  render();
+}
+function refresh() { render(); }
+function resetDemo() {
+  if (!confirm("清空所有演示状态，恢复全空位？\\nClear all demo status and restore all seats to empty?")) return;
+  manual = {}; setManual({});
+  localStorage.removeItem(KEY);
+  render();
+  alert("已重置为全空位 · Reset to all empty");
+}
+
+setInterval(render, 20000);
+render();
+
+window.addEventListener("load", () => {
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
