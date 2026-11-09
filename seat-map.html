@@ -134,7 +134,7 @@ const CONFIG = {
 const ROWS = ["A","B","C","D","E","F"];
 const COLS = 10;
 let editMode = false;
-let manual = {};
+let manual = getManual();
 let cloudSeats = {};   // 从云端读取的所有座位状态 { "A01": {st,name,sid,leftMin}, ... }
 
 function allSeats() {
@@ -218,7 +218,8 @@ function render() {
 }
 
 function toggleSeat(seat) {
-  const st = statusOf(seat);
+  const info = statusOf(seat);
+  const st = info.st;
   if (editMode) {
     /* 编辑模式：手动切换状态 */
     const next = st === "empty" ? "occ" : st === "occ" ? "away" : "empty";
