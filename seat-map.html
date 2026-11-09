@@ -59,8 +59,13 @@
     font-size: 13px; font-weight: 700; cursor: pointer;
     transition: transform .08s, box-shadow .2s, border-color .2s;
     user-select: none;
+    position: relative;
   }
   .seat:active { transform: scale(.92); }
+  .seat.empty:hover { filter: brightness(1.1); box-shadow: 0 2px 8px rgba(22,163,74,.25); }
+  .seat.empty .hint { position:absolute; bottom:-20px; left:50%; transform:translateX(-50%);
+    font-size:10px; color:#16a34a; font-weight:600; white-space:nowrap; pointer-events:none; }
+  .seat.occ:hover, .seat.away:hover { filter: brightness(1.05); }
   .seat.empty { background: #ecfdf5; border-color: #22c55e; color: #16a34a; }
   .seat.empty .dot { width: 10px; height: 10px; background: #22c55e; border-radius: 50%; margin-bottom: 4px; }
   .seat.occ { background: #fef2f2; border-color: #ef4444; color: #dc2626; }
@@ -96,6 +101,7 @@
   </div>
 
   <div class="controls">
+    <div style="font-size:12px;color:#6b7280">💡 点击绿色空位，直接前往签入该座位（座位号自动带出）</div>
     <button class="btn blue" onclick="refresh()">🔄 刷新状态 Refresh</button>
     <button class="btn gray" onclick="toggleEdit()">编辑模式 Edit</button>
     <button class="btn outline" onclick="resetDemo()">重置演示 Reset</button>
@@ -159,10 +165,12 @@ function render() {
     if (st === "empty") empty++;
     else if (st === "occ") occ++;
     else away++;
+    const clickHint = st === "empty" ? `<div class="hint">点击签入</div>` : "";
     return `<div class="seat ${st}" onclick="toggleSeat('${s}')" title="${s}">
       <div class="dot"></div>
       <div class="label">${s}</div>
       <div class="sub">${labelMap[st]}</div>
+      ${clickHint}
     </div>`;
   }).join("");
   grid.innerHTML = html;
@@ -173,12 +181,23 @@ function render() {
 }
 
 function toggleSeat(seat) {
-  if (!editMode) return;
-  const cur = statusOf(seat);
-  const next = cur === "empty" ? "occ" : cur === "occ" ? "away" : "empty";
-  if (next === "empty") { delete manual[seat]; setManual(manual); }
-  else { manual[seat] = next; setManual(manual); }
-  render();
+  const st = statusOf(seat);
+  if (editMode) {
+    /* 编辑模式：手动切换状态 */
+    const next = st === "empty" ? "occ" : st === "occ" ? "away" : "empty";
+    if (next === "empty") { delete manual[seat]; setManual(manual); }
+    else { manual[seat] = next; setManual(manual); }
+    render();
+    return;
+  }
+  /* 非编辑模式：点空位直接去签到，带上座位号 */
+  if (st === "empty") {
+    location.href = "index.html?seat=" + encodeURIComponent(seat);
+  } else if (st === "occ") {
+    alert("该座位已被占用 · Seat is occupied");
+  } else if (st === "away") {
+    alert("该座位暂离中 · Seat is away");
+  }
 }
 
 function toggleEdit() {
