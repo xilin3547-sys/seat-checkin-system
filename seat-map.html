@@ -229,7 +229,6 @@ function toggleSeat(seat) {
     return;
   }
   /* 非编辑模式：点空位直接去签入页，带上座位号 */
-  const info = statusOf(seat);
   if (info.st === "empty") {
     location.href = "checkin.html?seat=" + encodeURIComponent(seat);
   } else if (info.st === "occ") {
