@@ -126,12 +126,16 @@
 </div>
 
 <script>
-const KEY = "seatCheckinRecord";   // 与 index.html 签到页共享同一 localStorage 键
+const KEY = "seatCheckinRecord";   // 与 index.html / checkin.html 共享同一 localStorage 键
 const EDIT_KEY = "seatMapEdit";    // 编辑模式下的手动覆盖记录
+const CONFIG = {
+  ENDPOINT: ""   // ★ Apps Script Web App 网址。填入后多设备共享同一张座位图
+};
 const ROWS = ["A","B","C","D","E","F"];
 const COLS = 10;
 let editMode = false;
 let manual = {};
+let cloudSeats = {};   // 从云端读取的所有座位状态 { "A01": {st,name,sid,leftMin}, ... }
 
 function allSeats() {
   const out = [];
@@ -144,12 +148,19 @@ function rec() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); }
 function getManual() { try { return JSON.parse(localStorage.getItem(EDIT_KEY) || "{}"); } catch(e) { return {}; } }
 function setManual(m) { localStorage.setItem(EDIT_KEY, JSON.stringify(m)); }
 
-/* 判定某座位状态：手动覆盖优先；否则读签到记录 */
+function fmtName(name) {
+  if (!name) return "";
+  return name.length > 4 ? name.slice(0, 2) + "··" + name.slice(-2) : name;
+}
+
+/* 判定某座位状态：手动覆盖优先；否则读云端状态；再否则读本地签到记录 */
 /* 返回 {st, name, sid, leftMin} */
 function statusOf(seat) {
   if (manual[seat]) {
-    const st = manual[seat];
-    return { st: st, name: "", sid: "", leftMin: "" };
+    return { st: manual[seat], name: "", sid: "", leftMin: "" };
+  }
+  if (cloudSeats[seat]) {
+    return cloudSeats[seat];
   }
   const r = rec();
   if (r && r.seat === seat) {
@@ -163,9 +174,17 @@ function statusOf(seat) {
   return { st: "empty", name: "", sid: "", leftMin: "" };
 }
 
-function fmtName(name) {
-  if (!name) return "";
-  return name.length > 4 ? name.slice(0, 2) + "··" + name.slice(-2) : name;
+/* 从云端获取所有座位状态（多设备共享） */
+async function loadCloudSeats() {
+  if (!CONFIG.ENDPOINT) return;
+  try {
+    const url = CONFIG.ENDPOINT.replace(/\/+$/, "") + "?action=list";
+    const res = await fetch(url, { mode: "cors", credentials: "omit" });
+    const data = await res.json();
+    if (data && data.ok && data.seats) {
+      cloudSeats = data.seats;
+    }
+  } catch (e) { /* 云端不可用时静默回退本地 */ }
 }
 
 function render() {
@@ -208,10 +227,10 @@ function toggleSeat(seat) {
     render();
     return;
   }
-  /* 非编辑模式：点空位直接去签到，带上座位号 */
+  /* 非编辑模式：点空位直接去签入页，带上座位号 */
   const info = statusOf(seat);
   if (info.st === "empty") {
-    location.href = "index.html?seat=" + encodeURIComponent(seat);
+    location.href = "checkin.html?seat=" + encodeURIComponent(seat);
   } else if (info.st === "occ") {
     alert("该座位已被占用 · Seat is occupied\n占用者：" + (info.name || "—") + (info.sid ? " (" + info.sid + ")" : ""));
   } else if (info.st === "away") {
@@ -229,12 +248,21 @@ function resetDemo() {
   if (!confirm("清空所有演示状态，恢复全空位？\\nClear all demo status and restore all seats to empty?")) return;
   manual = {}; setManual({});
   localStorage.removeItem(KEY);
+  cloudSeats = {};
   render();
   alert("已重置为全空位 · Reset to all empty");
 }
 
-setInterval(render, 20000);
-render();
+/* 初始化：先读云端（若配置了 ENDPOINT），再渲染，之后每30秒轮询云端 */
+(async function init() {
+  await loadCloudSeats();
+  render();
+  if (CONFIG.ENDPOINT) {
+    setInterval(() => { loadCloudSeats().then(render); }, 30000);
+  } else {
+    setInterval(render, 20000);
+  }
+})();
 
 window.addEventListener("load", () => {
   if ("serviceWorker" in navigator && location.protocol === "https:") {

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>签到入座 · Check in</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f4f6fb;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px 16px 48px;
+  }
+  .card {
+    background: #fff;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(30,60,120,.10);
+    overflow: hidden;
+  }
+  .head {
+    background: linear-gradient(135deg,#2563eb,#1e40af);
+    color: #fff; padding: 20px 24px;
+  }
+  .head h1 { font-size: 20px; letter-spacing: 1px; }
+  .head p { font-size: 13px; opacity: .85; margin-top: 4px; }
+  label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; color: #1f2937; }
+  label small { display: block; font-weight: 400; color: #6b7280; font-size: 12px; }
+  input {
+    width: 100%; padding: 11px 12px; font-size: 15px;
+    border: 1.5px solid #d1d5db; border-radius: 10px; outline: none;
+  }
+  input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  input[readonly] { background: #eef2ff; color: #1e40af; }
+  .note {
+    margin-top: 12px; font-size: 12.5px; color: #92400e;
+    background: #fffbeb; border: 1px dashed #fde68a;
+    padding: 10px 12px; border-radius: 10px; line-height: 1.6;
+  }
+  .tip { margin-top: 18px; text-align: center; font-size: 12px; color: #9ca3af; }
+  .btn {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; margin-top: 14px; padding: 16px 18px;
+    font-size: 16px; font-weight: 600; text-align: left;
+    color: #fff; border: none; border-radius: 12px; cursor: pointer;
+    transition: transform .08s, opacity .15s;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn.in { background: #2563eb; }
+  .btn.map { background: #64748b; }
+  .btn.home { background: #6b7280; margin-top: 8px; }
+  .link { display:inline-block; margin-top: 18px; font-size: 14px; color: #2563eb; background: none; border: none; cursor: pointer; text-decoration: underline; }
+  .done { display: none; text-align: center; padding: 46px 24px; }
+  .done .icon { font-size: 50px; }
+  .done h2 { margin: 12px 0 6px; font-size: 18px; }
+  .done p { color: #6b7280; font-size: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>签到入座</h1>
+    <p>Check in — 座位号已自动带出，只需填姓名与学号</p>
+  </div>
+
+  <!-- ===== 签入表单 ===== -->
+  <div id="formView" style="padding:20px 24px 26px">
+    <label for="name">学生姓名 / Student Name<small>请输入真实姓名 · full name</small></label>
+    <input id="name" type="text" placeholder="姓名 / Name" autocomplete="name">
+
+    <label for="sid">学号 / Student ID<small>例如 2023XXXXXX</small></label>
+    <input id="sid" type="text" inputmode="numeric" placeholder="学号 / Student ID">
+
+    <label for="seat">座位号 / Seat Number<small id="seatHint">扫描座位二维码自动识别 · auto-detected from desk QR</small></label>
+    <input id="seat" type="text" placeholder="例如 A12 / e.g. A12">
+
+    <label for="email">提醒邮箱 / Alert Email（选填 optional）<small>座位释放前 10 分钟接收预警 · get a reminder 10 min before release</small></label>
+    <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@university.edu">
+
+    <button class="btn in" id="btnCheckin" onclick="submitCheckin()">确认签到 · Check in</button>
+    <button class="btn map" onclick="goMap()">返回空座位图 · Back to Seat Map</button>
+    <button class="btn home" onclick="goHome()">返回主页 · Back to Home</button>
+  </div>
+
+  <!-- ===== 成功页 ===== -->
+  <div class="done" id="doneBox">
+    <div class="icon" id="doneIcon">✅</div>
+    <h2 id="doneTitle"></h2>
+    <p id="doneMsg"></p>
+    <button class="btn map" onclick="goMap()">返回空座位图 · Back to Seat Map</button>
+    <button class="btn home" onclick="goHome()">返回主页 · Back to Home</button>
+  </div>
+</div>
+
+<script>
+const KEY = "seatCheckinRecord";
+const CONFIG = {
+  ENDPOINT: ""   // ★ Apps Script Web App 网址。为空=纯本地演示; 填入后自动上报+发送预警邮件
+};
+const URL_SEAT = new URLSearchParams(location.search).get("seat");
+
+function rec()        { return JSON.parse(localStorage.getItem(KEY) || "null"); }
+function saveRec(r)   { localStorage.setItem(KEY, JSON.stringify(r)); }
+function fmt(d)       { return d.getHours().toString().padStart(2,"0") + ":" + d.getMinutes().toString().padStart(2,"0"); }
+
+/* ============ 页面初始化 ============ */
+const seatInput = document.getElementById("seat");
+const seatHint  = document.getElementById("seatHint");
+
+if (URL_SEAT) {
+  seatInput.value = URL_SEAT;
+  seatInput.readOnly = true;
+  seatInput.style.background = "#eef2ff";
+  seatInput.style.color = "#1e40af";
+  seatHint.textContent = "✓ 已自动识别座位 · automatically detected from this QR";
+} else {
+  const r = rec();
+  seatInput.value = r ? r.seat : "";
+  seatHint.textContent = "⚠ 未检测到座位信息, 请手输或改扫桌面二维码 · No seat detected — type it or scan the desk QR";
+}
+
+/* ============ 签入 ============ */
+function submitCheckin() {
+  const name  = document.getElementById("name").value.trim();
+  const sid   = document.getElementById("sid").value.trim();
+  const seat  = ((URL_SEAT || document.getElementById("seat").value) + "").trim();
+  const email = document.getElementById("email").value.trim();
+  if (!name || !sid) { alert("请填写姓名与学号 / Please fill in name and student ID"); return; }
+  if (!seat)         { alert("未检测到座位号, 请扫座位上的二维码 / No seat detected — scan the QR code on the desk"); return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("邮箱格式不正确 / Invalid email format"); return; }
+
+  saveRec({ name, sid, seat, email, checkinAt: Date.now(), tempUntil: null, autoOut: null });
+  report("checkin", { name, sid, seat, email: email || "" });
+
+  document.getElementById("doneIcon").textContent  = "✅";
+  document.getElementById("doneTitle").textContent = "签到成功 · Checked in";
+  document.getElementById("doneMsg").innerHTML =
+    `${name} · 座位 Seat ${seat}<br>祝学习愉快! Enjoy your study session!`;
+  document.getElementById("formView").style.display = "none";
+  document.getElementById("doneBox").style.display = "block";
+}
+
+/* ============ 视图跳转 ============ */
+function goMap()  { location.href = "seat-map.html"; }
+function goHome() { location.href = "index.html"; }
+
+/* ============ 云端上报(需 ENDPOINT 已配置) ============ */
+function report(action, data) {
+  if (!CONFIG.ENDPOINT) return;
+  try {
+    fetch(CONFIG.ENDPOINT, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...data, ts: Date.now() })
+    });
+  } catch (e) { /* 静默失败 */ }
+}
+
+/* Service Worker 登记(PWA) */
+window.addEventListener("load", () => {
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
