@@ -55,6 +55,7 @@
   .btn.out  { background: #059669; }
   .btn.away { background: #d97706; }
   .btn.back { background: #0891b2; }
+  .btn.map  { background: #64748b; }
   .btn small { font-weight: 500; opacity: .85; font-size: 12px; }
   .btn[disabled] { opacity: .45; cursor: not-allowed; }
   label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; color: #1f2937; }
@@ -105,7 +106,7 @@
     <button class="btn out"  onclick="goCheckout()" id="btnOut">签出 : 离开座位 <small>Check out · release seat</small></button>
     <button class="btn back" onclick="resumeSeat()" id="btnBack" style="display:none">我已返回, 恢复在座 <small>Resume · I'm back</small></button>
     <div class="tip" id="homeTip">规则 Rules: Temporarily away up to 30 min normally, up to 60 min during meal times (11:00–13:30 / 17:00–19:30); popup 10 min before release, auto check-out when time ends 临时离开默认最多 30 分钟, 用餐时段最多 60 分钟, 释放前 10 分钟弹窗提醒, 到时自动签出</div>
-    <div style="text-align:center;margin-top:10px"><a href="seat-map.html" class="link">🪑 查看空座位图 · Empty Seat Map</a></div>
+    <button class="btn map" onclick="goMap()">🪑 查看空座位图 <small>Empty Seat Map</small></button>
   </div>
 
   <!-- ===== 签入表单 ===== -->
@@ -185,6 +186,7 @@ function fmt(d)       { return d.getHours().toString().padStart(2,"0") + ":" + d
 const views = ["homeView","checkinView","awayView","checkoutView","doneBox"];
 function show(id) { views.forEach(v => document.getElementById(v).style.display = (v===id?"block":"none")); }
 function goHome() { renderHome(); show("homeView"); }
+function goMap()  { location.href = "seat-map.html"; }
 
 /* ============ 主界面渲染 ============ */
 function renderHome() {
